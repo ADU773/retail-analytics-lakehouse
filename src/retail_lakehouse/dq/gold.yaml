@@ -1,0 +1,218 @@
+# Gold = the star schema and marts consumed by the dashboard. Tests enforce key integrity,
+# SCD2 correctness, metric bounds and revenue reconciliation between facts.
+layer: gold
+tables:
+  gold.dim_date:
+    description: Calendar dimension (one row per day) with retail events such as Black Friday and Cyber Monday.
+    tests:
+      - row_count_min: 60
+    columns:
+      date_key: {description: "Surrogate key yyyymmdd.", tests: [not_null, unique]}
+      date: {description: "Calendar date.", tests: [unique]}
+      is_weekend: {description: "Saturday or Sunday."}
+      is_black_friday: {description: "Day after US Thanksgiving."}
+      holiday_name: {description: "Retail event / public holiday label, if any."}
+      is_peak_season: {description: "Black Friday week through December."}
+
+  gold.dim_customer:
+    description: Customer dimension, SCD Type 2 on segment and location; Type 1 for contact attributes. customer_key = -1 is the unknown member.
+    tests:
+      - row_count_min: 50
+      - expression: {expr: "valid_from < valid_to", description: "validity interval is non-empty"}
+      - sql:
+          query: >
+            SELECT a.customer_id FROM gold.dim_customer a JOIN gold.dim_customer b
+              ON a.customer_id = b.customer_id AND a.customer_key < b.customer_key
+             AND a.valid_from < b.valid_to AND b.valid_from < a.valid_to
+          description: SCD2 validity intervals of one customer never overlap
+      - sql:
+          query: >
+            SELECT customer_id FROM gold.dim_customer GROUP BY customer_id
+            HAVING count(*) FILTER (WHERE is_current) <> 1
+          description: exactly one current version per customer
+    columns:
+      customer_key: {description: "Surrogate key of the customer version.", tests: [not_null, unique]}
+      customer_id: {description: "Natural key from the CRM.", tests: [not_null]}
+      email: {description: "Latest valid e-mail (Type 1)."}
+      acquisition_channel: {description: "Channel that acquired the customer (from the first record)."}
+      signup_date: {description: "Date of registration."}
+      segment:
+        description: Loyalty tier for this version (Type 2).
+        tests:
+          - accepted_values: {values: [standard, plus, business, unknown]}
+      region: {description: "Sales region for this version (Type 2)."}
+      country: {description: "Country for this version (Type 2)."}
+      city: {description: "City for this version (Type 2)."}
+      valid_from: {description: "Start of validity (1900-01-01 for the first version)."}
+      valid_to: {description: "End of validity, exclusive (9999-12-31 for the current version)."}
+      is_current: {description: "True for the latest version."}
+
+  gold.dim_product:
+    description: Product dimension with category > subcategory hierarchy, prices and list margin.
+    columns:
+      product_key: {description: "Surrogate key.", tests: [not_null, unique]}
+      product_id: {description: "Natural key (P + 4 digits).", tests: [unique]}
+      category: {description: "Top-level category."}
+      subcategory: {description: "Second-level category."}
+      list_price: {description: "Current list price (USD)."}
+      unit_cost: {description: "Unit cost (USD)."}
+      list_margin_pct:
+        description: 1 - unit_cost / list_price.
+        tests:
+          - range: {min: 0, max: 1}
+
+  gold.fact_orders:
+    description: "Order fact, grain = one order. Revenue measures exclude shipping; cancelled orders are kept and flagged."
+    tests:
+      - row_count_min: 100
+      - expression: {expr: "gross_margin <= net_revenue", description: "margin cannot exceed revenue"}
+      - expression:
+          expr: "line_count = 0 OR abs(order_total - (net_revenue + shipping_fee)) < 0.05"
+          severity: warn
+          max_failure_rate: 0.05
+          description: header total reconciles with the valid lines (differences = quarantined lines)
+      - sql:
+          query: >
+            SELECT 1 FROM (SELECT sum(net_revenue) AS a FROM gold.fact_orders) o,
+                          (SELECT sum(net_amount) AS b FROM gold.fact_order_items) i
+            WHERE abs(o.a - i.b) > 0.01
+          description: order-level and line-level net revenue reconcile exactly
+    columns:
+      order_id: {description: "Natural key.", tests: [not_null, unique]}
+      order_date_key: {description: "FK to dim_date.", tests: [{relationships: {to: gold.dim_date, field: date_key}}]}
+      customer_key:
+        description: FK to the dim_customer version valid at order time (point-in-time SCD2 join).
+        tests:
+          - relationships: {to: gold.dim_customer, field: customer_key}
+      customer_segment: {description: "Loyalty tier at the time of the order."}
+      customer_region: {description: "Region at the time of the order."}
+      net_revenue:
+        description: Gross sales minus discounts (USD, excl. shipping).
+        tests:
+          - range: {min: 0}
+      gross_margin: {description: "Net revenue minus COGS."}
+      attributed_channel: {description: "Traffic source of the purchase session (last touch)."}
+      is_first_order: {description: "First non-cancelled order of the customer."}
+      promotion_type: {tests: [{accepted_values: {values: [none, welcome, black_friday, seasonal]}}]}
+
+  gold.fact_order_items:
+    description: Order-line fact, grain = one order line, with COGS, margin and returns.
+    columns:
+      order_item_id: {tests: [not_null, unique]}
+      order_id: {tests: [{relationships: {to: gold.fact_orders, field: order_id}}]}
+      product_key: {tests: [not_null, {relationships: {to: gold.dim_product, field: product_key}}]}
+      returned_quantity:
+        description: Units returned for this line.
+        tests:
+          - expression: {expr: "returned_quantity <= quantity"}
+
+  gold.fact_sessions:
+    description: Session fact, grain = one web session, with the deepest funnel step reached.
+    columns:
+      session_id: {tests: [not_null, unique]}
+      funnel_step:
+        description: 0 = landed, 1 = product_view, 2 = add_to_cart, 3 = checkout, 4 = purchase.
+        tests:
+          - range: {min: 0, max: 4}
+
+  gold.mart_daily_kpis:
+    description: Daily KPI mart for the executive dashboard.
+    tests:
+      - row_count_min: 60
+      - expression: {expr: "aov IS NULL OR aov > 0"}
+    columns:
+      date: {description: "Calendar date.", tests: [unique, not_null]}
+      net_revenue: {description: "Net revenue of non-cancelled orders placed that day."}
+      aov: {description: "Average order value = net revenue / orders."}
+      gross_margin_pct:
+        description: Gross margin / net revenue.
+        tests:
+          - range: {min: 0, max: 1}
+      return_rate:
+        description: Returned units / units sold (by order date; recent days are right-censored).
+        tests:
+          - range: {min: 0, max: 1}
+      conversion_rate:
+        description: Sessions with a purchase / sessions.
+        tests:
+          - range: {min: 0, max: 1}
+      mer: {description: "Marketing efficiency ratio = net revenue / total paid spend."}
+
+  gold.mart_cohort_retention:
+    description: Monthly acquisition cohorts x months since first order.
+    tests:
+      - expression: {expr: "months_since_first_order > 0 OR retention_rate = 1", description: "month 0 retention is 100%"}
+    columns:
+      retention_rate:
+        description: Active customers / cohort size.
+        tests:
+          - range: {min: 0, max: 1}
+
+  gold.mart_rfm:
+    description: RFM scores and named segments per purchasing customer.
+    columns:
+      customer_id: {tests: [not_null, unique]}
+      r_score: {description: "Recency quintile (5 = most recent).", tests: [{range: {min: 1, max: 5}}]}
+      f_score: {description: "Frequency quintile (ties broken by monetary value).", tests: [{range: {min: 1, max: 5}}]}
+      m_score: {description: "Monetary quintile.", tests: [{range: {min: 1, max: 5}}]}
+      rfm_segment:
+        description: Named segment from the classic R x F map.
+        tests:
+          - accepted_values:
+              values: [Champions, Loyal Customers, Potential Loyalists, New Customers, Promising, Need Attention, About to Sleep, At Risk, Cannot Lose Them, Hibernating]
+
+  gold.mart_customer_ltv:
+    description: Historical CLV plus predicted 12-month CLV (BG/NBD x Gamma-Gamma x margin rate).
+    columns:
+      customer_id: {tests: [not_null, unique]}
+      historical_clv: {description: "Gross margin generated to date."}
+      p_alive:
+        description: BG/NBD probability that the customer is still active.
+        tests:
+          - range: {min: 0, max: 1}
+      expected_purchases_12m:
+        description: BG/NBD expected purchases in the next 52 weeks.
+        tests:
+          - range: {min: 0}
+      predicted_clv_12m:
+        description: Expected 12-month gross margin.
+        tests:
+          - not_null
+          - range: {min: 0}
+
+  gold.mart_clv_backtest:
+    description: Out-of-time validation of the BG/NBD model (26-week holdout).
+    columns:
+      customer_id: {tests: [unique]}
+      predicted_holdout_purchases: {tests: [not_null, {range: {min: 0}}]}
+
+  gold.mart_market_basket:
+    description: Product-pair association rules.
+    columns:
+      support: {tests: [{range: {min: 0, max: 1}}]}
+      confidence_a_to_b: {tests: [{range: {min: 0, max: 1}}]}
+      lift: {description: "Support(A,B) / (Support(A) x Support(B)); > 1 means bought together more than by chance.", tests: [{range: {min: 0}}]}
+
+  gold.mart_channel_roas:
+    description: Monthly channel spend, last-touch attributed revenue, ROAS and CAC.
+    tests:
+      - unique_combination: [month, channel]
+    columns:
+      roas: {description: "Attributed revenue / spend.", tests: [{range: {min: 0}}]}
+      cac: {description: "Spend / new customers whose first order was attributed to the channel."}
+
+  gold.mart_funnel:
+    description: Monthly funnel by device, traffic source and region.
+    tests:
+      - expression:
+          expr: "purchase_sessions <= checkout_sessions AND checkout_sessions <= add_to_cart_sessions AND add_to_cart_sessions <= product_view_sessions AND product_view_sessions <= sessions"
+          description: funnel steps are monotonic
+    columns:
+      conversion_rate: {tests: [{range: {min: 0, max: 1}}]}
+
+  gold.mart_quarantine_summary:
+    description: Rows rejected by silver per entity and reason.
+    columns:
+      share_of_bronze:
+        tests:
+          - range: {min: 0, max: 0.05}

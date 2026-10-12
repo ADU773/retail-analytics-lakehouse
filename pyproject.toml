@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retail-analytics-lakehouse"
+version = "0.1.0"
+description = "Laptop-scale analytics lakehouse for a fictional DTC retailer: synthetic data, bronze/silver/gold medallion layers on DuckDB + Parquet, a mini-dbt DAG runner, data-quality tests, CLV/RFM/cohort marts and an executive dashboard."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Advaith A Arun" }]
+keywords = ["duckdb", "parquet", "lakehouse", "analytics-engineering", "data-quality", "clv", "rfm"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "duckdb>=1.1",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=14",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    "plotly>=5.18",
+    "matplotlib>=3.8",
+    "psutil>=5.9",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.40"]
+dev = ["pytest>=8", "pytest-cov>=4", "ruff>=0.6", "streamlit>=1.40"]
+
+[project.scripts]
+retail-lakehouse = "retail_lakehouse.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ADU773/retail-analytics-lakehouse"
+Report = "https://adu773.github.io/retail-analytics-lakehouse/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+retail_lakehouse = [
+    "sql/*.sql",
+    "sql/silver/*.sql",
+    "sql/gold/*.sql",
+    "dq/*.yaml",
+    "defaults/*.yaml",
+    "templates/*.j2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["e2e: end-to-end pipeline tests (tiny scale)"]
+filterwarnings = ["ignore::DeprecationWarning:streamlit.*"]
+
+[tool.coverage.run]
+source = ["retail_lakehouse"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["data", "reports", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PT", "RUF", "N"]
+# E501: the formatter owns line length; remaining long lines are SQL/text literals.
+# PT018: composite asserts read naturally in data tests.
+ignore = ["E501", "PT018", "RUF001", "RUF002", "RUF003", "N803", "N806"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["retail_lakehouse"]
+
+[tool.ruff.format]
+quote-style = "double"

@@ -1,0 +1,47 @@
+# Package defaults for retail-lakehouse. A project-level lakehouse.yaml, environment
+# variables (RLH__SECTION__KEY=value) and CLI flags override these values, in that order.
+
+paths:
+  data_dir: data            # raw/, bronze/ and warehouse/ live under this directory
+  reports_dir: reports      # DQ reports, benchmark.json, run summaries (gitignored)
+  docs_dir: docs            # published static report (committed, GitHub Pages)
+  readme: README.md         # target for --update-readme
+  sql_dir: null             # null -> SQL models shipped inside the package
+  dq_dir: null              # null -> DQ test YAML shipped inside the package
+
+generator:
+  seed: 42
+  customers: 25000
+  start: 2024-01-01
+  end: 2025-12-31
+  days: null                # if set, overrides `end` as start + days - 1
+  dq_issue_rate: 0.015      # share of rows that receive an injected data-quality problem
+  late_arrival_rate: 0.01   # share of orders/events delivered in a later batch
+  anonymous_sessions_per_customer: 5.0
+
+resources:
+  workers: auto             # generator processes; auto = physical cores - 1
+  duckdb_threads: auto      # auto = physical cores
+  duckdb_memory_limit: auto # auto = min(2 GiB, 25% of total RAM, 50% of available RAM)
+
+quality:
+  fail_on_error: true       # error-severity failures abort the run (non-zero exit code)
+  as_of: null               # reference date for freshness tests; null -> generator end
+
+report:
+  top_pairs: 15
+  images: true
+
+scales:                     # presets selectable with --scale
+  tiny:
+    customers: 600
+    start: 2024-01-01
+    end: 2024-12-31
+  small:
+    customers: 5000
+    start: 2024-01-01
+    end: 2025-06-30
+  default:
+    customers: 25000
+    start: 2024-01-01
+    end: 2025-12-31

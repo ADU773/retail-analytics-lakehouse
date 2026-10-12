@@ -1,0 +1,62 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+
+# --- virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- test / lint caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# --- generated data & artifacts (never commit) ---
+data/
+runs/
+reports/
+logs/
+*.log
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.parquet
+models/
+checkpoints/
+*.ckpt
+*.pt
+*.pkl
+*.joblib
+.streamlit/secrets.toml
+
+# --- local configuration / secrets ---
+.env
+.env.*
+lakehouse.yaml
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,140 @@
+# Silver = the cleaned contract. Everything here is error severity unless noted: if the
+# silver models let a problem through, the run fails.
+layer: silver
+tables:
+  silver.customers:
+    description: Typed, standardised customer versions (sign-up record plus CDC change snapshots); one row per customer_id + updated_at.
+    tests:
+      - row_count_min: 50
+      - unique_combination: [customer_id, updated_at]
+      - expression: {expr: "updated_at >= signup_ts", description: "change records cannot predate the sign-up"}
+    columns:
+      customer_id: {description: "Natural key (C + 7 digits).", tests: [not_null]}
+      email:
+        description: Lower-cased e-mail; NULL when the source value was missing or syntactically invalid.
+        tests:
+          - not_null: {severity: warn, max_failure_rate: 0.03}
+      signup_ts: {description: "Sign-up time (UTC).", tests: [not_null]}
+      acquisition_channel:
+        description: Marketing channel that acquired the customer.
+        tests:
+          - accepted_values: {values: [organic_search, paid_search, paid_social, display, affiliate, referral, direct]}
+      region:
+        description: Sales region of the customer's address at updated_at.
+        tests:
+          - accepted_values: {values: [North America, Europe, Asia Pacific]}
+      segment:
+        description: Loyalty tier at updated_at (standard, plus, business).
+        tests:
+          - accepted_values: {values: [standard, plus, business]}
+      updated_at: {description: "Version timestamp (UTC).", tests: [not_null]}
+
+  silver.products:
+    description: Product catalog with conformed category hierarchy.
+    tests:
+      - row_count_min: 20
+      - expression: {expr: "unit_cost < list_price", severity: warn, description: "products sell above cost"}
+    columns:
+      product_id: {tests: [not_null, unique]}
+      category:
+        tests:
+          - accepted_values: {values: [Home & Kitchen, Apparel, Outdoor, Beauty & Wellness, Electronics]}
+      list_price:
+        tests:
+          - range: {min: 0.01}
+
+  silver.orders:
+    description: Order headers, latest CDC version per order_id, timestamps normalised to UTC.
+    tests:
+      - row_count_min: 100
+      - freshness: {column: order_ts, max_age_days: 2}
+      - expression: {expr: "updated_at >= order_ts - INTERVAL 1 MINUTE", description: "updates happen after the order"}
+    columns:
+      order_id: {tests: [not_null, unique]}
+      customer_id:
+        tests:
+          - not_null
+          - relationships: {to: silver.customers, field: customer_id}
+      order_ts: {tests: [not_null]}
+      status:
+        tests:
+          - accepted_values: {values: [placed, shipped, delivered, cancelled]}
+      shipping_fee:
+        tests:
+          - range: {min: 0}
+
+  silver.order_items:
+    description: Order lines with validated quantities and foreign keys.
+    tests:
+      - row_count_min: 100
+      - expression: {expr: "discount_amount <= quantity * unit_price", description: "discount never exceeds the line value"}
+    columns:
+      order_item_id: {tests: [not_null, unique]}
+      order_id:
+        tests:
+          - relationships: {to: silver.orders, field: order_id}
+      product_id:
+        tests:
+          - relationships: {to: silver.products, field: product_id}
+      quantity:
+        tests:
+          - range: {min: 1, max: 100}
+
+  silver.returns:
+    description: Returns validated against the purchased order line.
+    columns:
+      return_id: {tests: [not_null, unique]}
+      order_item_id:
+        tests:
+          - relationships: {to: silver.order_items, field: order_item_id}
+      reason:
+        tests:
+          - accepted_values: {values: [wrong_size, not_as_described, changed_mind, damaged, defective, late_delivery]}
+      refund_amount:
+        tests:
+          - range: {min: 0}
+
+  silver.web_sessions:
+    description: Web sessions with conformed device and traffic-source codes.
+    tests:
+      - row_count_min: 100
+      - freshness: {column: session_start, max_age_days: 2}
+    columns:
+      session_id: {tests: [not_null, unique]}
+      customer_id:
+        tests:
+          - relationships: {to: silver.customers, field: customer_id}
+      device:
+        tests:
+          - accepted_values: {values: [desktop, mobile, tablet]}
+      traffic_source:
+        tests:
+          - accepted_values: {values: [organic_search, paid_search, paid_social, display, email, affiliate, referral, direct]}
+
+  silver.web_events:
+    description: Funnel events linked to valid sessions.
+    tests:
+      - row_count_min: 100
+      - expression: {expr: "event_type <> 'purchase' OR order_id IS NOT NULL", description: "purchase events carry an order_id"}
+    columns:
+      event_id: {tests: [not_null, unique]}
+      session_id:
+        tests:
+          - relationships: {to: silver.web_sessions, field: session_id}
+      event_type:
+        tests:
+          - accepted_values: {values: [product_view, add_to_cart, checkout, purchase]}
+
+  silver.marketing_spend:
+    description: Daily spend per paid channel.
+    tests:
+      - row_count_min: 30
+      - unique_combination: [spend_date, channel]
+      - freshness: {column: spend_date, max_age_days: 2}
+    columns:
+      channel:
+        tests:
+          - accepted_values: {values: [paid_search, paid_social, display, affiliate, email]}
+      spend:
+        tests:
+          - range: {min: 0}

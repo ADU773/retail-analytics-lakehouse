@@ -1,0 +1,108 @@
+# Bronze = raw fidelity. Lineage and volume are hard requirements (error); content problems
+# that silver is designed to repair or quarantine are surfaced as warnings so every run
+# documents how dirty the landing zone was.
+layer: bronze
+tables:
+  bronze.customers:
+    description: Raw CRM export (all columns as text) plus lineage columns.
+    tests:
+      - row_count_min: 50
+      - unique_combination: {columns: [customer_id, updated_at], severity: warn}
+      - expression: {expr: "clean_email(email) IS NOT NULL", severity: warn, description: "syntactically valid e-mail"}
+      - expression: {expr: "segment = lower(trim(segment))", severity: warn, description: "canonical segment code"}
+    columns:
+      customer_id: {tests: [not_null]}
+      _source_file: {tests: [not_null]}
+      _batch_id: {tests: [not_null]}
+      _ingested_at: {tests: [not_null]}
+
+  bronze.products:
+    description: Raw product catalog extract.
+    tests:
+      - row_count_min: 20
+      - expression: {expr: "category = trim(category) AND category NOT LIKE '%  %' AND category <> upper(category)", severity: warn}
+    columns:
+      product_id: {tests: [not_null, unique]}
+      _source_file: {tests: [not_null]}
+
+  bronze.orders:
+    description: Raw OLTP order headers, including re-sent CDC versions and duplicates.
+    tests:
+      - row_count_min: 100
+      - expression: {expr: "parse_ts(order_ts) IS NOT NULL", description: "order_ts parseable in some known format"}
+      - expression: {expr: "regexp_full_match(order_ts, '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z')", severity: warn, description: "order_ts in canonical ISO-8601 UTC"}
+    columns:
+      order_id:
+        tests:
+          - not_null
+          - unique: {severity: warn}
+      customer_id:
+        tests:
+          - relationships: {to: bronze.customers, field: customer_id, severity: warn}
+      status:
+        tests:
+          - accepted_values: {values: [placed, shipped, delivered, cancelled], severity: warn}
+      _source_file: {tests: [not_null]}
+      _batch_id: {tests: [not_null]}
+
+  bronze.order_items:
+    description: Raw OLTP order lines.
+    tests:
+      - row_count_min: 100
+      - expression: {expr: "try_cast(quantity AS INTEGER) > 0", severity: warn, description: "positive quantity"}
+    columns:
+      order_item_id:
+        tests:
+          - not_null
+          - unique: {severity: warn}
+      product_id:
+        tests:
+          - relationships: {to: bronze.products, field: product_id, severity: warn}
+
+  bronze.returns:
+    description: Raw returns-portal webhook events.
+    tests:
+      - row_count_min: 1
+    columns:
+      return_id:
+        tests:
+          - not_null
+          - unique: {severity: warn}
+      reason:
+        tests:
+          - accepted_values: {values: [wrong_size, not_as_described, changed_mind, damaged, defective, late_delivery], severity: warn}
+
+  bronze.web_sessions:
+    description: Raw web-analytics sessions.
+    tests:
+      - row_count_min: 100
+    columns:
+      session_id:
+        tests:
+          - not_null
+          - unique: {severity: warn}
+      device:
+        tests:
+          - accepted_values: {values: [desktop, mobile, tablet], severity: warn}
+
+  bronze.web_events:
+    description: Raw funnel events.
+    tests:
+      - row_count_min: 100
+    columns:
+      event_id:
+        tests:
+          - not_null
+          - unique: {severity: warn}
+      session_id:
+        tests:
+          - relationships: {to: bronze.web_sessions, field: session_id, severity: warn}
+
+  bronze.marketing_spend:
+    description: Raw ad-platform spend.
+    tests:
+      - row_count_min: 30
+      - expression: {expr: "try_cast(spend AS DOUBLE) >= 0", severity: warn, description: "non-negative spend"}
+    columns:
+      date: {tests: [not_null]}
+      channel: {tests: [not_null]}

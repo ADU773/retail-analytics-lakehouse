@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-10-11T18:09:44+00:00",
+  "system": {
+    "host": "host-01",
+    "os": "Windows 11",
+    "python": "3.14.3",
+    "duckdb": "1.5.6",
+    "cpu_model": "AMD Ryzen 7 6800HS with Radeon Graphics",
+    "physical_cores": 8,
+    "logical_cores": 16,
+    "total_ram_gb": 13.8,
+    "available_ram_gb_at_start": 2.6,
+    "gpu_used": false
+  },
+  "background_cpu_percent": 27.7,
+  "settings": {
+    "customers": 25000,
+    "start": "2024-01-01",
+    "end": "2025-12-31",
+    "seed": 42,
+    "duckdb_threads": 8,
+    "duckdb_memory_limit": "1309MB"
+  },
+  "generation": [
+    {
+      "workers": 1,
+      "seconds": 3.856,
+      "rows": 900541,
+      "rows_per_second": 233530,
+      "repeats": 3,
+      "peak_rss_mb": 215.5,
+      "speedup": 1.0
+    },
+    {
+      "workers": 7,
+      "seconds": 2.315,
+      "rows": 900541,
+      "rows_per_second": 389054,
+      "repeats": 3,
+      "peak_rss_mb": 1300.0,
+      "speedup": 1.67
+    }
+  ],
+  "steps": [
+    {
+      "step": "generate (into data/raw)",
+      "seconds": 2.549,
+      "peak_rss_mb": 1285.7,
+      "cpu_seconds": 1.05,
+      "workers": 7
+    },
+    {
+      "step": "ingest (bronze)",
+      "seconds": 6.842,
+      "peak_rss_mb": 565.4,
+      "cpu_seconds": 10.17,
+      "rows": 900541,
+      "files": 348
+    },
+    {
+      "step": "ingest re-run (idempotent no-op)",
+      "seconds": 0.315,
+      "peak_rss_mb": 205.4,
+      "cpu_seconds": 0.31
+    },
+    {
+      "step": "transform silver",
+      "seconds": 5.069,
+      "peak_rss_mb": 485.2,
+      "cpu_seconds": 12.69,
+      "models": 8
+    },
+    {
+      "step": "transform gold",
+      "seconds": 5.158,
+      "peak_rss_mb": 439.7,
+      "cpu_seconds": 8.22,
+      "models": 15
+    },
+    {
+      "step": "data-quality tests",
+      "seconds": 3.109,
+      "peak_rss_mb": 328.9,
+      "cpu_seconds": 5.28,
+      "tests": 166
+    },
+    {
+      "step": "compact warehouse",
+      "seconds": 2.938,
+      "peak_rss_mb": 608.3,
+      "cpu_seconds": 8.5
+    }
+  ],
+  "transform_thread_scaling": [
+    {
+      "threads": 1,
+      "seconds": 13.132,
+      "peak_rss_mb": 504.1,
+      "speedup": 1.0
+    },
+    {
+      "threads": 8,
+      "seconds": 11.329,
+      "peak_rss_mb": 510.2,
+      "speedup": 1.16
+    }
+  ],
+  "compression": {
+    "overall_ratio": 7.75,
+    "csv_only_ratio": 7.51,
+    "per_entity": {
+      "customers": {
+        "format": "jsonl",
+        "raw_mb": 8.56,
+        "parquet_mb": 0.79,
+        "ratio": 10.87
+      },
+      "products": {
+        "format": "csv",
+        "raw_mb": 0.01,
+        "parquet_mb": 0.11,
+        "ratio": 0.13
+      },
+      "orders": {
+        "format": "csv",
+        "raw_mb": 4.32,
+        "parquet_mb": 0.82,
+        "ratio": 5.25
+      },
+      "order_items": {
+        "format": "csv",
+        "raw_mb": 5.36,
+        "parquet_mb": 0.72,
+        "ratio": 7.4
+      },
+      "returns": {
+        "format": "jsonl",
+        "raw_mb": 1.07,
+        "parquet_mb": 0.16,
+        "ratio": 6.82
+      },
+      "web_sessions": {
+        "format": "csv",
+        "raw_mb": 18.04,
+        "parquet_mb": 3.04,
+        "ratio": 5.93
+      },
+      "web_events": {
+        "format": "csv",
+        "raw_mb": 33.02,
+        "parquet_mb": 3.39,
+        "ratio": 9.73
+      },
+      "marketing_spend": {
+        "format": "jsonl",
+        "raw_mb": 0.38,
+        "parquet_mb": 0.09,
+        "ratio": 4.15
+      }
+    }
+  },
+  "storage_mb": {
+    "raw (CSV/JSONL)": 70.8,
+    "bronze (Parquet)": 9.1,
+    "silver+gold (DuckDB)": 42.3
+  },
+  "rows_by_entity": {
+    "customers": 27928,
+    "marketing_spend": 3677,
+    "order_items": 85055,
+    "orders": 46801,
+    "products": 135,
+    "returns": 4983,
+    "web_events": 502119,
+    "web_sessions": 229843
+  }
+}
